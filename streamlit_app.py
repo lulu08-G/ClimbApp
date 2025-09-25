@@ -1,34 +1,29 @@
 import streamlit as st
-from ultralytics import YOLO
-from PIL import Image
+from PIL import Image, ImageDraw
 import numpy as np
+from ultralytics import YOLO
 
+st.set_page_config(layout="wide")
 st.title("🧗 Analyseur de voies d’escalade")
 
+# -------------------
+# 1️⃣ Upload photo
+# -------------------
 uploaded_file = st.file_uploader("Upload une photo de la voie", type=["jpg", "png"])
 
-# Charger modèle YOLO (initialement pré-entraîné sur COCO, fine-tuning possible)
-model = YOLO("yolov8n.pt")  # Version mini, rapide à tester
+# -------------------
+# 2️⃣ Sélection couleur de voie
+# -------------------
+voie_couleur = st.selectbox(
+    "Choisis la couleur de la voie", 
+    ["Vert", "Rouge", "Bleu", "Jaune", "Autre"]
+)
 
-def compute_metrics(boxes):
-    nb_prises = len(boxes)
-    if nb_prises < 2:
-        return nb_prises, 0
-    distances = []
-    for i in range(len(boxes)-1):
-        x1, y1, _, _ = boxes[i]
-        x2, y2, _, _ = boxes[i+1]
-        distances.append(np.sqrt((x2-x1)**2 + (y2-y1)**2))
-    return nb_prises, np.mean(distances)
-
-def estimate_difficulty(nb_prises, dist, devers=0):
-    score = (20 - nb_prises) * 0.5 + dist * 0.2 + devers * 2
-    if score < 5:
-        return "V1-V2 (Facile)"
-    elif score < 10:
-        return "V3-V4 (Intermédiaire)"
-    else:
-        return "V5+ (Dur)"
+# -------------------
+# 3️⃣ Charger modèle YOLO
+# -------------------
+# YOLO Tiny pré-entraîné sur COCO, pour test
+model = YOLO("yolov8n.pt")  # tu peux remplacer par ton modèle finetuné
 
 if uploaded_file:
     image = Image.open(uploaded_file).convert("RGB")
@@ -37,13 +32,32 @@ if uploaded_file:
     # Convertir PIL -> np.array pour YOLO
     img_array = np.array(image)
 
-    # Détection des prises sans cv2
+    # Détection des prises
     results = model.predict(img_array)
-    boxes = results[0].boxes.xywh.cpu().numpy()
+    boxes = results[0].boxes.xywh.cpu().numpy()  # [x_center, y_center, w, h]
 
     st.write(f"Nombre de prises détectées : {len(boxes)}")
-    
-    nb, dist = compute_metrics(boxes)
-    st.write(f"Nb prises: {nb}, espacement moyen: {dist:.2f}")
-    
-    st.write("Difficulté estimée :", estimate_difficulty(nb, dist))
+
+    # -------------------
+    # 4️⃣ Dessiner les prises détectées (placeholder pour sélection future)
+    # -------------------
+    draw_image = image.copy()
+    draw = ImageDraw.Draw(draw_image)
+
+    for box in boxes:
+        x, y, w, h = box
+        # Convertir centre -> coin supérieur gauche / inférieur droit
+        x1 = x - w/2
+        y1 = y - h/2
+        x2 = x + w/2
+        y2 = y + h/2
+        # Dessiner rectangle sur la prise
+        draw.rectangle([x1, y1, x2, y2], outline="red", width=2)
+
+    st.image(draw_image, caption="Prises détectées (placeholder)")
+
+    # -------------------
+    # 5️⃣ Placeholder pour clic sur image
+    # -------------------
+    st.info("À venir : clic sur les prises pour sélectionner départ / fin / voie")
+
