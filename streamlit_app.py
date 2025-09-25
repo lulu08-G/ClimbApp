@@ -2,7 +2,6 @@ import streamlit as st
 from ultralytics import YOLO
 from PIL import Image
 import numpy as np
-import cv2
 
 st.title("🧗 Analyseur de voies d’escalade")
 
@@ -32,11 +31,14 @@ def estimate_difficulty(nb_prises, dist, devers=0):
         return "V5+ (Dur)"
 
 if uploaded_file:
-    image = Image.open(uploaded_file)
+    image = Image.open(uploaded_file).convert("RGB")
     st.image(image, caption="Voie uploadée", use_column_width=True)
 
-    # Détection des prises
-    results = model.predict(np.array(image))
+    # Convertir PIL -> np.array pour YOLO
+    img_array = np.array(image)
+
+    # Détection des prises sans cv2
+    results = model.predict(img_array)
     boxes = results[0].boxes.xywh.cpu().numpy()
 
     st.write(f"Nombre de prises détectées : {len(boxes)}")
