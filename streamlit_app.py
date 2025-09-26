@@ -4,25 +4,27 @@ from PIL import Image, ImageDraw, ImageFont
 import io
 import pandas as pd
 import base64
-from datetime import datetime, time
+from datetime import datetime
 
-st.set_page_config(page_title="CoTeamer Dofus", layout="wide",
-                   page_icon="🟢")
+st.set_page_config(page_title="CoTeamer Dofus", layout="wide", page_icon="🟢")
 
 # ---------------------------
 # Helpers
 # ---------------------------
-def make_class_image(name, size=(300,300), bg=(10,80,20)):
-    """Génère une vignette simple pour une classe (texte centré)."""
+def make_class_image(name, size=(300, 300), bg=(10, 80, 20), text_color=(230, 255, 200)):
+    """Génère une vignette simple pour une classe (texte centré). Retourne PIL.Image."""
     img = Image.new("RGB", size, color=bg)
     draw = ImageDraw.Draw(img)
-    # Attempt to load a default font; fallback
+    # try to get a truetype font, else fallback
     try:
         font = ImageFont.truetype("DejaVuSans-Bold.ttf", 28)
     except Exception:
         font = ImageFont.load_default()
-    w,h = draw.textsize(name, font=font)
-    draw.text(((size[0]-w)/2,(size[1]-h)/2), name, fill=(230,255,200), font=font)
+    # compute text bbox to center text (compatible Pillow 10+)
+    bbox = draw.textbbox((0, 0), name, font=font)
+    w = bbox[2] - bbox[0]
+    h = bbox[3] - bbox[1]
+    draw.text(((size[0] - w) / 2, (size[1] - h) / 2), name, fill=text_color, font=font)
     return img
 
 def image_to_bytes(img: Image.Image):
@@ -51,9 +53,10 @@ def make_fake_profiles():
             "server": "Croca",
             "roles": ["Mono"],
             "classes": ["Iop"],
-            "tags": ["PVM", "Succès"],
+            "tags": ["PVM", "Succes"],
             "discord": True,
             "dispo": "Weekends 20:00-23:00",
+            "playtime": "1-2h",
             "objective": "Full succès dj",
             "bio": "Cherche team pvm chill, dispo soirs.",
         },
@@ -66,6 +69,7 @@ def make_fake_profiles():
             "tags": ["PVP"],
             "discord": False,
             "dispo": "Tous les jours après 19:00",
+            "playtime": "2-4h",
             "objective": "Run songe",
             "bio": "Prefer heal/support, recherche duo stable.",
         },
@@ -78,6 +82,7 @@ def make_fake_profiles():
             "tags": ["PVM", "PVP"],
             "discord": True,
             "dispo": "Mercredi soir 21:00",
+            "playtime": "<1h",
             "objective": "Farm ressources",
             "bio": "Main DPS, bon esprit, micro actif.",
         },
@@ -90,13 +95,18 @@ def make_fake_profiles():
             "tags": ["Succes"],
             "discord": True,
             "dispo": "Weekend matin",
+            "playtime": ">4h",
             "objective": "Mini-boss succès",
             "bio": "Curieux et patient, aime farm et crafting.",
         },
     ]
     # add small generated avatars
     for p in fake:
-        p["avatar_bytes"] = image_to_bytes(make_class_image(",".join(p["classes"])))
+        try:
+            img = make_class_image(",".join(p["classes"]))
+            p["avatar_bytes"] = image_to_bytes(img)
+        except Exception:
+            p["avatar_bytes"] = None
     return fake
 
 # ---------------------------
@@ -104,7 +114,6 @@ def make_fake_profiles():
 # ---------------------------
 init_state()
 if len(st.session_state.profiles) == 0:
-    # preload fake profiles (only once)
     st.session_state.profiles.extend(make_fake_profiles())
 
 # ---------------------------
@@ -114,9 +123,9 @@ st.sidebar.markdown("## 🔎 Filtrer & Rechercher")
 servers = ["Tous", "Croca", "Brumaire", "Oto Mustam", "Aermine", "Henual", "Jiva"]
 chosen_server = st.sidebar.selectbox("Choisir le serveur", servers)
 
-activity_filters = st.sidebar.multiselect("Activités (filtre)", ["PVM","PVP","Succes"], default=[])
-role_filter = st.sidebar.multiselect("Rôle recherché", ["Mono","Duo","Tri"], default=[])
-discord_filter = st.sidebar.selectbox("Discord", ["Tous","Avec Discord","Sans Discord"])
+activity_filters = st.sidebar.multiselect("Activités (filtre)", ["PVM", "PVP", "Succes"], default=[])
+role_filter = st.sidebar.multiselect("Rôle recherché", ["Mono", "Duo", "Tri"], default=[])
+discord_filter = st.sidebar.selectbox("Discord", ["Tous", "Avec Discord", "Sans Discord"])
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("## ⚙️ Admin")
@@ -130,27 +139,23 @@ if st.session_state.admin:
 # ---------------------------
 # Main layout
 # ---------------------------
-col1, col2 = st.columns([1,2])
+col1, col2 = st.columns([1, 2])
 
 with col1:
     st.header("S'inscrire / Créer un profil")
     with st.form("signup", clear_on_submit=False):
         display_name = st.text_input("Pseudo affiché", max_chars=30)
         server = st.selectbox("Serveur", servers[1:])  # skip "Tous"
-        # roles: mono/duo/tri (multiselect but store as roles)
-        roles = st.multiselect("Je peux jouer en (choisir)", ["Mono","Duo","Tri"], default=["Mono"])
-        # classes: allow multiple and limit to common classes
-        classes_available = ["Iop","Eniripsa","Sacrieur","Cra","Sadida","Sram","Panda","Feca","Other"]
+        roles = st.multiselect("Je peux jouer en (choisir)", ["Mono", "Duo", "Tri"], default=["Mono"])
+        classes_available = ["Iop", "Eniripsa", "Sacrieur", "Cra", "Sadida", "Sram", "Panda", "Feca", "Other"]
         classes = st.multiselect("Classes (choisir jusqu'à 3)", classes_available, max_selections=3)
-        tags = st.multiselect("Activités", ["PVM","PVP","Succes"], default=["PVM"])
+        tags = st.multiselect("Activités", ["PVM", "PVP", "Succes"], default=["PVM"])
         discord = st.checkbox("Discord disponible ?", value=True)
-        # availability: free text for V1; later could be structured
         dispo = st.text_input("Dispos (ex: Weekends 20:00-23:00)", value="Soirs")
-        # playtime: average session length
-        playtime = st.selectbox("Durée moyenne de session", ["<1h","1-2h","2-4h",">4h"])
-        objective = st.selectbox("Objectif temporaire", ["Aucun","Run songe","Full succès dj","Farm ressources"])
+        playtime = st.selectbox("Durée moyenne de session", ["<1h", "1-2h", "2-4h", ">4h"])
+        objective = st.selectbox("Objectif temporaire", ["Aucun", "Run songe", "Full succès dj", "Farm ressources"])
         bio = st.text_area("Bio / précisions", max_chars=300)
-        upload = st.file_uploader("Photo de profil (optionnel)", type=["png","jpg","jpeg"])
+        upload = st.file_uploader("Photo de profil (optionnel)", type=["png", "jpg", "jpeg"])
         choose_class_img = st.selectbox("Ou choisir une image de classe", ["Aucune"] + classes_available)
         submitted = st.form_submit_button("Créer mon profil")
 
@@ -158,18 +163,19 @@ with col1:
             if not display_name:
                 st.warning("Renseigne un pseudo affiché.")
             else:
-                new_id = f"user_{len(st.session_state.profiles)+1}_{int(datetime.utcnow().timestamp())}"
+                new_id = f"user_{len(st.session_state.profiles) + 1}_{int(datetime.utcnow().timestamp())}"
                 avatar_bytes = None
                 if upload is not None:
                     try:
                         img = Image.open(upload).convert("RGB")
-                        avatar_bytes = image_to_bytes(img.resize((300,300)))
+                        avatar_bytes = image_to_bytes(img.resize((300, 300)))
                     except Exception:
                         st.error("Impossible de lire l'image uploadée.")
                 elif choose_class_img != "Aucune":
                     avatar_bytes = image_to_bytes(make_class_image(choose_class_img))
                 else:
                     avatar_bytes = image_to_bytes(make_class_image(display_name[:8]))
+
                 profile = {
                     "id": new_id,
                     "display_name": display_name,
@@ -195,9 +201,9 @@ with col2:
     if chosen_server != "Tous":
         filtered = [p for p in filtered if p.get("server") == chosen_server]
     if activity_filters:
-        filtered = [p for p in filtered if any(tag in p.get("tags",[]) for tag in activity_filters)]
+        filtered = [p for p in filtered if any(tag in p.get("tags", []) for tag in activity_filters)]
     if role_filter:
-        filtered = [p for p in filtered if any(r in p.get("roles",[]) for r in role_filter)]
+        filtered = [p for p in filtered if any(r in p.get("roles", []) for r in role_filter)]
     if discord_filter == "Avec Discord":
         filtered = [p for p in filtered if p.get("discord") is True]
     elif discord_filter == "Sans Discord":
@@ -209,20 +215,20 @@ with col2:
     cards_per_row = 2
     for i in range(0, len(filtered), cards_per_row):
         cols = st.columns(cards_per_row)
-        for j, p in enumerate(filtered[i:i+cards_per_row]):
+        for j, p in enumerate(filtered[i:i + cards_per_row]):
             with cols[j]:
                 st.markdown("---")
                 # avatar
                 if p.get("avatar_bytes"):
                     st.image(p["avatar_bytes"], width=150)
                 st.subheader(p.get("display_name"))
-                st.caption(f"{p.get('server')} • {', '.join(p.get('classes',[]))}")
-                st.write(f"**Rôle:** {', '.join(p.get('roles',[]))}")
-                st.write(f"**Activités:** {', '.join(p.get('tags',[]))}")
+                st.caption(f"{p.get('server')} • {', '.join(p.get('classes', []))}")
+                st.write(f"**Rôle:** {', '.join(p.get('roles', []))}")
+                st.write(f"**Activités:** {', '.join(p.get('tags', []))}")
                 st.write(f"**Discord:** {'Oui' if p.get('discord') else 'Non'}")
                 st.write(f"**Dispo:** {p.get('dispo')} • **Session:** {p.get('playtime')}")
                 st.write(f"**Objectif:** {p.get('objective')}")
-                st.write(p.get("bio",""))
+                st.write(p.get("bio", ""))
                 # small action buttons
                 if st.button("Voir profil", key=f"view_{p['id']}"):
                     st.session_state.current_user = p
@@ -235,14 +241,14 @@ if st.session_state.current_user:
     p = st.session_state.current_user
     st.markdown("---")
     st.header(f"Profil : {p['display_name']}")
-    cols = st.columns([1,2])
+    cols = st.columns([1, 2])
     with cols[0]:
         if p.get("avatar_bytes"):
             st.image(p["avatar_bytes"], width=240)
         st.write(f"Server: {p.get('server')}")
-        st.write(f"Roles: {', '.join(p.get('roles',[]))}")
-        st.write(f"Classes: {', '.join(p.get('classes',[]))}")
-        st.write(f"Tags: {', '.join(p.get('tags',[]))}")
+        st.write(f"Roles: {', '.join(p.get('roles', []))}")
+        st.write(f"Classes: {', '.join(p.get('classes', []))}")
+        st.write(f"Tags: {', '.join(p.get('tags', []))}")
         st.write(f"Discord: {'Oui' if p.get('discord') else 'Non'}")
     with cols[1]:
         st.write(f"**Bio:** {p.get('bio')}")
